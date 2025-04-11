@@ -1,5 +1,6 @@
 import Foundation
 import PhotosUI
+import Photos // Added import for photo library permissions
 
 /// An implementation of [image_picker](https://pub.dev/packages/image_picker) for macOS using [PHPicker](https://developer.apple.com/documentation/photokit/phpickerviewcontroller).
 ///
@@ -29,85 +30,122 @@ class ImagePickerImpl: NSObject, ImagePickerApi {
   private var pickVideosDelegate: PickVideosDelegate?
   private var pickMediaDelegate: PickMediaDelegate?
 
+  /// Requests photo library permissions if not already granted.
+  ///
+  /// - Parameter completion: A closure that is called with a boolean indicating whether access is granted.
+  private func requestPhotoLibraryPermission(completion: @escaping (Bool) -> Void) {
+    let status = PHPhotoLibrary.authorizationStatus()
+    switch status {
+    case .authorized, .limited:
+      completion(true)
+    case .notDetermined:
+      PHPhotoLibrary.requestAuthorization { newStatus in
+        DispatchQueue.main.async {
+          completion(newStatus == .authorized || newStatus == .limited)
+        }
+      }
+    default:
+      completion(false)
+    }
+  }
+
   func pickImages(
     options: ImageSelectionOptions, generalOptions: GeneralOptions,
     completion: @escaping (Result<any ImagePickerResult, any Error>) -> Void
   ) {
-    guard #available(macOS 13.0, *) else {
-      completion(.success(ImagePickerErrorResult(error: .phpickerUnsupported)))
-      return
+    requestPhotoLibraryPermission { granted in
+      guard granted else {
+        completion(.success(ImagePickerErrorResult(error: .permissionDenied)))
+        return
+      }
+      guard #available(macOS 13.0, *) else {
+        completion(.success(ImagePickerErrorResult(error: .phpickerUnsupported)))
+        return
+      }
+
+      var config = PHPickerConfiguration()
+      config.selectionLimit = Int(generalOptions.limit)
+      config.filter = .images
+
+      let picker = PHPickerViewController(configuration: config)
+
+      self.pickImagesDelegate = PickImagesDelegate(
+        completion: completion,
+        options: options
+      )
+      picker.delegate = self.pickImagesDelegate
+
+      self.showPHPicker(
+        picker,
+        noActiveWindow: {
+          completion(.success(ImagePickerErrorResult(error: .windowNotFound)))
+        })
     }
-
-    var config = PHPickerConfiguration()
-    config.selectionLimit = Int(generalOptions.limit)
-    config.filter = .images
-
-    let picker = PHPickerViewController(configuration: config)
-
-    pickImagesDelegate = PickImagesDelegate(
-      completion: completion,
-      options: options
-    )
-    picker.delegate = pickImagesDelegate
-
-    showPHPicker(
-      picker,
-      noActiveWindow: {
-        completion(.success(ImagePickerErrorResult(error: .windowNotFound)))
-      })
   }
 
   func pickVideos(
     generalOptions: GeneralOptions,
     completion: @escaping (Result<any ImagePickerResult, any Error>) -> Void
   ) {
-    guard #available(macOS 13.0, *) else {
-      completion(.success(ImagePickerErrorResult(error: .phpickerUnsupported)))
-      return
+    requestPhotoLibraryPermission { granted in
+      guard granted else {
+        completion(.success(ImagePickerErrorResult(error: .permissionDenied)))
+        return
+      }
+      guard #available(macOS 13.0, *) else {
+        completion(.success(ImagePickerErrorResult(error: .phpickerUnsupported)))
+        return
+      }
+
+      if generalOptions.limit != nil && generalOptions.limit != 1 {
+        completion(.success(ImagePickerErrorResult(error: .multiVideoSelectionUnsupported)))
+        return
+      }
+
+      var config = PHPickerConfiguration()
+      config.selectionLimit = 1
+      config.filter = .videos
+
+      let picker = PHPickerViewController(configuration: config)
+      self.pickVideosDelegate = PickVideosDelegate(completion: completion)
+      picker.delegate = self.pickVideosDelegate
+
+      self.showPHPicker(
+        picker,
+        noActiveWindow: {
+          completion(.success(ImagePickerErrorResult(error: .windowNotFound)))
+        })
     }
-
-    if generalOptions.limit != nil && generalOptions.limit != 1 {
-      completion(.success(ImagePickerErrorResult(error: .multiVideoSelectionUnsupported)))
-      return
-    }
-
-    var config = PHPickerConfiguration()
-    config.selectionLimit = 1
-    config.filter = .videos
-
-    let picker = PHPickerViewController(configuration: config)
-    pickVideosDelegate = PickVideosDelegate(completion: completion)
-    picker.delegate = pickVideosDelegate
-
-    showPHPicker(
-      picker,
-      noActiveWindow: {
-        completion(.success(ImagePickerErrorResult(error: .windowNotFound)))
-      })
   }
 
   func pickMedia(
     options: MediaSelectionOptions, generalOptions: GeneralOptions,
     completion: @escaping (Result<any ImagePickerResult, any Error>) -> Void
   ) {
-    guard #available(macOS 13.0, *) else {
-      completion(.success(ImagePickerErrorResult(error: .phpickerUnsupported)))
-      return
+    requestPhotoLibraryPermission { granted in
+      guard granted else {
+        completion(.success(ImagePickerErrorResult(error: .permissionDenied)))
+        return
+      }
+      guard #available(macOS 13.0, *) else {
+        completion(.success(ImagePickerErrorResult(error: .phpickerUnsupported)))
+        return
+      }
+
+      var config = PHPickerConfiguration()
+      config.selectionLimit = Int(generalOptions.limit)
+      config.filter = PHPickerFilter.any(of: [.images, .videos])
+
+      let picker = PHPickerViewController(configuration: config)
+      self.pickMediaDelegate = PickMediaDelegate(completion: completion, options: options)
+      picker.delegate = self.pickMediaDelegate
+
+      self.showPHPicker(
+        picker,
+        noActiveWindow: {
+          completion(.success(ImagePickerErrorResult(error: .windowNotFound)))
+        })
     }
-
-    var config = PHPickerConfiguration()
-    config.selectionLimit = Int(generalOptions.limit)
-    config.filter = PHPickerFilter.any(of: [.images, .videos])
-
-    let picker = PHPickerViewController(configuration: config)
-    pickMediaDelegate = PickMediaDelegate(completion: completion, options: options)
-    picker.delegate = pickMediaDelegate
-
-    showPHPicker(
-      picker,
-      noActiveWindow: {
-        completion(.success(ImagePickerErrorResult(error: .windowNotFound)))
-      })
   }
 
   @available(macOS 13, *)
@@ -501,3 +539,4 @@ extension URL {
     }
   }
 }
+
