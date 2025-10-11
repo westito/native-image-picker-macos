@@ -14,16 +14,15 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-  image_picker_platform_interface: ^2.10.1
+  image_picker_platform_interface: ^2.11.0
   meta: ^1.16.0
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
-  flutter_lints: ^5.0.0
-  mockito: ^5.4.5
-  pigeon: ^25.3.0
-  build_runner: ^2.4.15
+  flutter_lints: ^6.0.0
+  pigeon: ^26.0.1
+  build_runner: ^2.9.0
 
 flutter:
   plugin:
